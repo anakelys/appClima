@@ -1,5 +1,7 @@
 # App de Previsão do Tempo
 
+[🔗 Acesse o app online no Vercel](https://app-clima-k7vi.vercel.app/)
+
 Este é um aplicativo web de previsão do tempo que permite ao usuário buscar o clima atual e a previsão de 5 dias para qualquer cidade do mundo. Utiliza a API Open-Meteo para obter dados como temperatura, umidade, vento, precipitação e exibe ícones visuais do clima. O frontend é responsivo, moderno e fácil de usar.
 
 ## Visão Geral
