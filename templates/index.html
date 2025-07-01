@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>App de Previsão do Tempo</title>
+  <!-- Tailwind CSS para estilização -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Weather Icons para ícones visuais do clima -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/weather-icons/2.0.10/css/weather-icons.min.css">
+</head>
+<body class="bg-gradient-to-br from-blue-100 to-blue-300 min-h-screen flex flex-col items-center">
+  <div class="w-full max-w-2xl mt-10 bg-white rounded-xl shadow-lg p-6">
+    <h1 class="text-2xl font-bold text-blue-700 mb-4 text-center">Previsão do Tempo</h1>
+    <!-- Formulário de busca de cidade com autocomplete -->
+    <form id="weatherForm" class="flex gap-2 mb-6 flex-col sm:flex-row relative">
+      <div class="w-full relative">
+        <input id="cityInput" type="text" placeholder="Digite o nome da cidade" class="flex-1 w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400" autocomplete="off" required>
+        <ul id="suggestions" class="absolute z-10 left-0 right-0 bg-white border rounded shadow mt-1 hidden max-h-48 overflow-y-auto"></ul>
+      </div>
+      <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">Buscar</button>
+    </form>
+    <!-- Exibição dos dados do clima atual -->
+    <div id="weatherResult" class="hidden">
+      <div class="flex flex-col items-center">
+        <div class="flex items-center gap-3 mb-2">
+          <div class="text-3xl font-bold" id="cityName"></div>
+        </div>
+        <div class="flex items-center gap-4 mb-4">
+          <span class="text-6xl font-bold text-blue-600" id="temperature"></span>
+          <span class="text-2xl text-gray-500">°C</span>
+        </div>
+        <div class="flex flex-wrap justify-center gap-6 w-full mb-4">
+          <div class="flex flex-col items-center bg-blue-50 rounded-lg p-3 shadow">
+            <span class="font-semibold text-gray-700">Umidade</span>
+            <span id="humidity" class="text-blue-700 text-lg"></span>
+          </div>
+          <div class="flex flex-col items-center bg-blue-50 rounded-lg p-3 shadow">
+            <span class="font-semibold text-gray-700">Vento</span>
+            <span id="wind" class="text-blue-700 text-lg"></span>
+          </div>
+          <div class="flex flex-col items-center bg-blue-50 rounded-lg p-3 shadow">
+            <span class="font-semibold text-gray-700">Precipitação</span>
+            <span id="precipitation" class="text-blue-700 text-lg"></span>
+          </div>
+        </div>
+        <div class="flex flex-col items-center mt-2">
+          <span class="font-semibold text-gray-700">Descrição</span>
+          <span id="description" class="text-blue-700 text-lg"></span>
+        </div>
+      </div>
+    </div>
+    <!-- Cards de previsão de 5 dias -->
+    <div id="forecastResult" class="hidden mt-8">
+      <h2 class="text-xl font-semibold text-blue-700 mb-2 text-center">Previsão para 5 dias</h2>
+      <div id="forecastCards" class="flex flex-wrap justify-center gap-4"></div>
+    </div>
+    <!-- Mensagem de erro -->
+    <div id="errorMsg" class="text-red-600 text-center mt-4 hidden"></div>
+  </div>
+  <script>
+    // Mapeia códigos da Open-Meteo para classes de ícones do Weather Icons
+    function getWeatherIconClass(code) {
+      if ([0, 1].includes(code)) return 'wi-day-sunny';
+      if ([2, 3].includes(code)) return 'wi-day-cloudy';
+      if ([45, 48].includes(code)) return 'wi-fog';
+      if ([51, 53, 55, 56, 57].includes(code)) return 'wi-sprinkle';
+      if ([61, 63, 65, 80, 81, 82].includes(code)) return 'wi-rain';
+      if ([71, 73, 75, 77, 85, 86].includes(code)) return 'wi-snow';
+      if ([95, 96, 99].includes(code)) return 'wi-thunderstorm';
+      if ([99].includes(code)) return 'wi-hail';
+      if ([96].includes(code)) return 'wi-strong-wind';
+      return 'wi-cloudy';
+    }
+    // Retorna descrição em português e HTML do ícone para o código de clima
+    function getWeatherDescriptionAndIcon(code, size='text-2xl') {
+      let desc = 'Nublado';
+      if (code === 0) desc = 'Céu limpo';
+      else if (code === 1) desc = 'Ensolarado';
+      else if ([2, 3].includes(code)) desc = 'Parcialmente nublado';
+      else if ([45, 48].includes(code)) desc = 'Nevoeiro / Neblina';
+      else if ([51, 53, 55, 56, 57].includes(code)) desc = 'Garoa / Chuvisco';
+      else if ([61, 63, 65, 80, 81, 82].includes(code)) desc = 'Chuvoso';
+      else if ([71, 73, 75, 77, 85, 86].includes(code)) desc = 'Nevando / Neve';
+      else if ([95, 96, 99].includes(code)) desc = 'Tempestade';
+      else if (code === 99) desc = 'Granizo';
+      else if (code === 96) desc = 'Ventania / Ventoso';
+      const iconClass = getWeatherIconClass(code);
+      return {
+        desc,
+        icon: `<i class='wi ${iconClass} align-middle ${size}' style='font-size:1.5em'></i>`
+      };
+    }
+    // --- Autocomplete de cidades usando Open-Meteo ---
+    const cityInput = document.getElementById('cityInput');
+    const suggestions = document.getElementById('suggestions');
+    let selectedCity = null;
+    // Mostra sugestões conforme o usuário digita
+    cityInput.addEventListener('input', async function() {
+      const query = cityInput.value.trim();
+      suggestions.innerHTML = '';
+      suggestions.classList.add('hidden');
+      selectedCity = null;
+      if (query.length < 2) return;
+      const resp = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}`);
+      const data = await resp.json();
+      if (data.results && data.results.length > 0) {
+        data.results.slice(0, 8).forEach(city => {
+          const li = document.createElement('li');
+          li.textContent = `${city.name}${city.admin1 ? ', ' + city.admin1 : ''}, ${city.country}`;
+          li.className = 'px-3 py-2 cursor-pointer hover:bg-blue-100';
+          li.onclick = () => {
+            cityInput.value = li.textContent;
+            selectedCity = city;
+            suggestions.innerHTML = '';
+            suggestions.classList.add('hidden');
+          };
+          suggestions.appendChild(li);
+        });
+        suggestions.classList.remove('hidden');
+      }
+    });
+    // Esconde sugestões ao clicar fora
+    document.addEventListener('click', (e) => {
+      if (!suggestions.contains(e.target) && e.target !== cityInput) {
+        suggestions.classList.add('hidden');
+      }
+    });
+    // Submete o formulário, busca clima e previsão, e exibe resultados
+    document.getElementById('weatherForm').onsubmit = async function(e) {
+      e.preventDefault();
+      const city = cityInput.value;
+      document.getElementById('errorMsg').classList.add('hidden');
+      document.getElementById('weatherResult').classList.add('hidden');
+      document.getElementById('forecastResult').classList.add('hidden');
+      // Busca coordenadas da cidade
+      let lat = null, lon = null, displayName = city;
+      if (selectedCity) {
+        lat = selectedCity.latitude;
+        lon = selectedCity.longitude;
+        displayName = `${selectedCity.name}${selectedCity.admin1 ? ', ' + selectedCity.admin1 : ''}, ${selectedCity.country}`;
+      } else {
+        const resp = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}`);
+        const data = await resp.json();
+        if (!data.results || data.results.length === 0) {
+          document.getElementById('errorMsg').textContent = 'Cidade não encontrada.';
+          document.getElementById('errorMsg').classList.remove('hidden');
+          return;
+        }
+        lat = data.results[0].latitude;
+        lon = data.results[0].longitude;
+        displayName = `${data.results[0].name}${data.results[0].admin1 ? ', ' + data.results[0].admin1 : ''}, ${data.results[0].country}`;
+      }
+      // Busca clima atual
+      const weatherResp = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&hourly=relative_humidity_2m,precipitation`);
+      const weatherData = await weatherResp.json();
+      if (!weatherData.current_weather) {
+        document.getElementById('errorMsg').textContent = 'Dados de clima não encontrados.';
+        document.getElementById('errorMsg').classList.remove('hidden');
+        return;
+      }
+      // Busca umidade e precipitação para o horário mais próximo
+      let umidade = '-', precipitacao = '-';
+      if (weatherData.hourly && weatherData.hourly.time && weatherData.current_weather.time) {
+        const currentTime = weatherData.current_weather.time;
+        let idx = weatherData.hourly.time.indexOf(currentTime);
+        if (idx === -1) {
+          let minDiff = Infinity;
+          for (let i = 0; i < weatherData.hourly.time.length; i++) {
+            const diff = Math.abs(new Date(weatherData.hourly.time[i]) - new Date(currentTime));
+            if (diff < minDiff) {
+              minDiff = diff;
+              idx = i;
+            }
+          }
+        }
+        if (idx !== -1) {
+          if (weatherData.hourly.relative_humidity_2m && weatherData.hourly.relative_humidity_2m[idx] !== undefined)
+            umidade = weatherData.hourly.relative_humidity_2m[idx] + '%';
+          if (weatherData.hourly.precipitation && weatherData.hourly.precipitation[idx] !== undefined)
+            precipitacao = weatherData.hourly.precipitation[idx] + ' mm';
+        }
+      }
+      // Preenche campos do card de clima atual
+      document.getElementById('cityName').textContent = displayName;
+      document.getElementById('temperature').textContent = weatherData.current_weather.temperature;
+      document.getElementById('humidity').textContent = umidade;
+      document.getElementById('wind').textContent = weatherData.current_weather.windspeed + ' km/h';
+      document.getElementById('precipitation').textContent = precipitacao;
+      // Exibe descrição com ícone
+      const descIcon = getWeatherDescriptionAndIcon(weatherData.current_weather.weathercode, 'text-2xl');
+      document.getElementById('description').innerHTML = `<span class='flex items-center gap-2'>${descIcon.icon}<span>${descIcon.desc}</span></span>`;
+      document.getElementById('weatherResult').classList.remove('hidden');
+      // Busca e exibe previsão de 5 dias
+      const forecastResp = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto`);
+      const forecastData = await forecastResp.json();
+      if (forecastData.daily && forecastData.daily.time) {
+        let cards = '';
+        for (let i = 0; i < Math.min(5, forecastData.daily.time.length); i++) {
+          const descIcon = getWeatherDescriptionAndIcon(forecastData.daily.weathercode[i], 'text-xl');
+          cards += `<div class='flex flex-col items-center bg-blue-50 rounded-xl shadow p-4 min-w-[120px]'>
+            <div class='font-bold text-blue-700 mt-2'>${forecastData.daily.time[i].split('-').reverse().join('/')}</div>
+            <div class='flex items-center gap-2 text-lg mt-1'>${descIcon.icon}<span>${descIcon.desc}</span></div>
+            <div class='mt-2'><span class='text-blue-600 font-semibold'>${forecastData.daily.temperature_2m_max[i]}°C</span> / <span class='text-blue-400'>${forecastData.daily.temperature_2m_min[i]}°C</span></div>
+          </div>`;
+        }
+        document.getElementById('forecastCards').innerHTML = cards;
+        document.getElementById('forecastResult').classList.remove('hidden');
+      }
+    }
+  </script>
+</body>
+</html>
